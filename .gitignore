@@ -1,0 +1,18 @@
+# 敏感目录（含阿里云密钥等）
+需求/
+sql/
+supabase/
+node_modules/
+
+# 迁移工具（一次性使用）
+migrate.html
+
+# 操作系统
+Thumbs.db
+Desktop.ini
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
