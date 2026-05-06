@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Content-Security-Policy" content="
+        default-src 'self';
+        script-src 'self' 'unsafe-eval' 'unsafe-inline' https://unpkg.com https://cdn.tailwindcss.com;
+        style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://fonts.googleapis.com https://www.gstatic.com;
+        font-src 'self' https://fonts.gstatic.com;
+        img-src 'self' data: https: blob:;
+        connect-src 'self' https://agakzhlswzimjylewvcg.supabase.co wss://agakzhlswzimjylewvcg.supabase.co;
+        frame-src 'self';
+    ">
+    <title>素笺 · 匿名寄语</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700;900&display=swap');
+
+        body { font-family: 'Noto Serif SC', 'PingFang SC', serif; background: #faf6f0; }
+
+        .paper-texture {
+            background-color: #faf6f0;
+            background-image: radial-gradient(circle at 20% 30%, rgba(44,24,16,0.03) 1px, transparent 1px),
+                              radial-gradient(circle at 80% 70%, rgba(44,24,16,0.02) 1px, transparent 1px);
+            background-size: 50px 50px, 40px 40px;
+        }
+
+        @keyframes sealDown {
+            0% { transform: translateY(-120%) rotate(0deg); opacity: 0; }
+            60% { transform: translateY(0%) rotate(-5deg); opacity: 1; }
+            80% { transform: translateY(-5%) rotate(2deg); }
+            100% { transform: translateY(0%) rotate(0deg); opacity: 1; }
+        }
+
+        @keyframes envelopeFly {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            50% { transform: translateY(-30px) scale(1.05); opacity: 0.8; }
+            100% { transform: translateY(-120vh) scale(0.5); opacity: 0; }
+        }
+
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(30px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .seal-animate { animation: sealDown 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        .envelope-fly { animation: envelopeFly 1.5s ease-in forwards; }
+        .fade-in-up { animation: fadeInUp 0.6s ease-out forwards; }
+        .delay-1 { animation-delay: 0.1s; }
+        .delay-2 { animation-delay: 0.2s; }
+        .delay-3 { animation-delay: 0.3s; }
+
+        .radio-card input:checked + .radio-label {
+            border-color: #b22222; background: #fef2f2; color: #b22222;
+        }
+    </style>
+</head>
+<body class="min-h-screen paper-texture flex items-center justify-center p-4">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const SUPABASE_URL = 'https://agakzhlswzimjylewvcg.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable_YzYzzdOVSQzaNr1s3KjtLQ_KyHXfs5P';
+        const supabase = (window.supabasejs || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const { useState, useEffect } = React;
+
+        const Icon = ({ name, size = 18, className = "" }) => {
+            const icons = window.lucide?.icons;
+            const data = icons?.[name];
+            if (!data) return <span style={{width:size, height:size, display:'inline-block'}} />;
+            const renderEl = (el, i) => {
+                if (!el || !Array.isArray(el)) return null;
+                const [Tag, attrs, ...children] = el;
+                return React.createElement(Tag, { ...attrs, key: i },
+                    ...children.map((c, j) => renderEl(c, j)));
+            };
+            return React.createElement('svg', {
+                xmlns:'http://www.w3.org/2000/svg', width:size, height:size,
+                viewBox:'0 0 24 24', fill:'none', stroke:'currentColor',
+                strokeWidth:'2', strokeLinecap:'round', strokeLinejoin:'round',
+                className
+            }, data.map((el, i) => renderEl(el, i)));
+        };
+
+        const QUESTIONS = {
+            q1: { label: '我们是怎么认识的？', required: true, options: ['小学', '初中', '高中', '大学', '其他…'] },
+            q2: { label: '您现在和我是什么关系？', required: true, options: ['师生', '同学', '朋友', '长辈', '其他…'] },
+            q3: { label: '您对我的第一印象', required: false, type: 'textarea' },
+            q4: { label: '你觉得我是一个怎样的人？', required: false, type: 'textarea' },
+            q5: { label: '请您说一句最想对我说的话', required: false, type: 'textarea' },
+            q6: { label: '你可以留下你的名字（选填）', required: false, type: 'text' },
+        };
+
+        // ----- 主应用 -----
+        function App() {
+            const [session, setSession] = useState(null);
+            const [checking, setChecking] = useState(true);
+
+            useEffect(() => {
+                supabase.auth.getSession().then(({ data: { session: s } }) => {
+                    setSession(s);
+                    setChecking(false);
+                });
+                const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+                return () => subscription.unsubscribe();
+            }, []);
+
+            if (checking) {
+                return (
+                    <div className="flex items-center justify-center h-screen">
+                        <p className="text-[#8b7355] text-sm tracking-wider">研磨展笺中…</p>
+                    </div>
+                );
+            }
+
+            if (!session) {
+                return <NotLoggedIn />;
+            }
+
+            return <EvalForm session={session} />;
+        }
+
+        // ----- 未登录提示 -----
+        function NotLoggedIn() {
+            return (
+                <div className="w-full max-w-md mx-auto bg-white rounded-[3rem] p-10 shadow-2xl shadow-[#2c1810]/10 border border-[#d4c5b2]/30 text-center fade-in-up">
+                    <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-[#8b7355] flex items-center justify-center text-white font-black text-xl"
+                         style={{fontFamily:'serif'}}>笺</div>
+                    <h1 className="text-2xl font-black text-[#2c1810] mb-3" style={{fontFamily:'serif'}}>素笺 · 匿名寄语</h1>
+                    <p className="text-[#8b7355] text-sm mb-8 leading-relaxed">此笺唯入阁者可投。<br/>请先叩门，再落墨挥毫。</p>
+                    <a href="../index.html"
+                       className="inline-block px-8 py-3 bg-gradient-to-r from-[#2c1810] to-[#4a2c1a] text-white rounded-xl font-bold shadow-lg shadow-[#2c1810]/15 hover:scale-105 active:scale-95 transition-all">
+                        前往叩门入阁 →
+                    </a>
+                </div>
+            );
+        }
+
+        // ----- 评价表单 -----
+        function EvalForm({ session }) {
+            const [form, setForm] = useState({
+                q1: '', q1custom: '',
+                q2: '', q2custom: '',
+                q3: '', q4: '', q5: '', q6: ''
+            });
+            const [photo, setPhoto] = useState(null);
+            const [photoPreview, setPhotoPreview] = useState(null);
+            const [submitting, setSubmitting] = useState(false);
+            const [done, setDone] = useState(false);
+            const [errMsg, setErrMsg] = useState('');
+
+            const handlePhoto = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                if (!file.type.startsWith('image/')) return setErrMsg('请选择图片文件');
+                if (file.size > 5 * 1024 * 1024) return setErrMsg('图片不超过 5MB');
+                setPhoto(file);
+                const r = new FileReader();
+                r.onload = (ev) => setPhotoPreview(ev.target.result);
+                r.readAsDataURL(file);
+                setErrMsg('');
+            };
+
+            const handleSubmit = async () => {
+                if (!form.q1 || !form.q2) return setErrMsg('请完成必选题 Q1 和 Q2');
+
+                setSubmitting(true); setErrMsg('');
+
+                let photoUrl = null;
+                try {
+                    // 上传图片到 Supabase Storage
+                    if (photo) {
+                        const ext = photo.name.split('.').pop() || 'jpg';
+                        const path = `${session.user.id}/${Date.now()}.${ext}`;
+                        const { error: upErr } = await supabase.storage.from('eval-photos').upload(path, photo);
+                        if (upErr) throw upErr;
+                        const { data: urlData } = supabase.storage.from('eval-photos').getPublicUrl(path);
+                        photoUrl = urlData.publicUrl;
+                    }
+
+                    // 写入评价记录
+                    const record = {
+                        user_id: session.user.id,
+                        q1_meet: form.q1 === '其他…' ? ('其他：' + (form.q1custom || '')) : form.q1,
+                        q1_meet_custom: form.q1 === '其他…' ? form.q1custom : null,
+                        q2_relation: form.q2 === '其他…' ? ('其他：' + (form.q2custom || '')) : form.q2,
+                        q2_relation_custom: form.q2 === '其他…' ? form.q2custom : null,
+                        q3_first_impression: form.q3 || null,
+                        q4_personality: form.q4 || null,
+                        q5_message: form.q5 || null,
+                        q2_meet: form.q6 || null,
+                        photo_url: photoUrl
+                    };
+
+                    const { error } = await supabase.from('evaluations').insert(record);
+                    if (error) throw error;
+
+                    setDone(true);
+                } catch (e) {
+                    setErrMsg('投递失败：' + (e.message || e));
+                } finally {
+                    setSubmitting(false);
+                }
+            };
+
+            if (done) {
+                return (
+                    <div className="w-full max-w-lg mx-auto text-center fade-in-up">
+                        <div className="relative inline-block mb-8">
+                            {/* 信封 */}
+                            <div className="envelope-fly w-24 h-16 mx-auto bg-[#faf6f0] border-2 border-[#d4c5b2] rounded-lg relative shadow-lg"
+                                 style={{animationDelay:'0.6s'}}>
+                                <div className="absolute inset-x-0 top-0 h-8 bg-[#f5efe6] border-b-2 border-[#d4c5b2] rounded-t-lg flex items-center justify-center">
+                                    <div className="w-6 h-6 rounded-full bg-[#b22222] flex items-center justify-center seal-animate"
+                                         style={{animationDelay:'0.2s'}}>
+                                        <span className="text-white text-[10px] font-black" style={{fontFamily:'serif'}}>封</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <h2 className="text-2xl font-black text-[#2c1810] mb-3" style={{fontFamily:'serif'}}>素笺已缄，鸿雁传书</h2>
+                        <p className="text-[#8b7355] text-sm leading-relaxed">你的寄语已封缄寄出。<br/>墨痕虽浅，心意深长。</p>
+                        <button onClick={() => { setDone(false); setForm({ q1:'',q1custom:'',q2:'',q2custom:'',q3:'',q4:'',q5:'',q6:'' }); setPhoto(null); setPhotoPreview(null); }}
+                                className="mt-8 px-8 py-3 bg-white border-2 border-[#d4c5b2] text-[#8b7355] rounded-xl font-bold hover:bg-[#faf6f0] transition-colors">
+                            再寄一封
+                        </button>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="w-full max-w-2xl mx-auto pb-16 fade-in-up">
+                    {/* 页眉 */}
+                    <div className="text-center mb-10">
+                        <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-[#b22222] flex items-center justify-center text-white font-black text-lg shadow-lg shadow-[#b22222]/20"
+                             style={{fontFamily:'serif'}}>笺</div>
+                        <h1 className="text-2xl font-black text-[#2c1810] tracking-widest" style={{fontFamily:'serif'}}>素笺 · 匿名寄语</h1>
+                        <p className="text-[#8b7355] text-xs mt-2 tracking-wider">落墨无声 · 此笺匿名</p>
+                        <div className="mt-4 inline-block px-4 py-1.5 bg-[#f5efe6] border border-[#d4c5b2]/50 rounded-full text-[11px] text-[#8b7355] font-bold tracking-wider">
+                            <Icon name="shield-check" size={14} className="inline mr-1 -mt-0.5" />
+                            你的身份将被匿名处理
+                        </div>
+                    </div>
+
+                    {/* 错误提示 */}
+                    {errMsg && (
+                        <div className="mb-6 p-4 bg-[#fef2f2] border border-[#fecaca] text-[#991b1b] rounded-2xl text-sm font-medium text-center">
+                            {errMsg}
+                        </div>
+                    )}
+
+                    {/* 表单卡片 */}
+                    <div className="bg-white rounded-[3rem] p-8 md:p-10 shadow-2xl shadow-[#2c1810]/8 border border-[#d4c5b2]/30 space-y-8">
+                        {/* Q1 */}
+                        <QuestionBlock required label={QUESTIONS.q1.label}>
+                            <RadioGroup name="q1" value={form.q1} onChange={v => setForm({...form, q1: v})}
+                                        options={QUESTIONS.q1.options} />
+                            {form.q1 === '其他…' && (
+                                <input value={form.q1custom} onChange={e => setForm({...form, q1custom: e.target.value})}
+                                       placeholder="请说明…"
+                                       className="mt-3 w-full p-3 bg-[#faf6f0] border border-[#d4c5b2] rounded-xl outline-none focus:ring-2 ring-[#8b4513]/20 text-[#2c1810] placeholder-[#b8a99a] text-sm" />
+                            )}
+                        </QuestionBlock>
+
+                        {/* Q2 */}
+                        <QuestionBlock required label={QUESTIONS.q2.label}>
+                            <RadioGroup name="q2" value={form.q2} onChange={v => setForm({...form, q2: v})}
+                                        options={QUESTIONS.q2.options} />
+                            {form.q2 === '其他…' && (
+                                <input value={form.q2custom} onChange={e => setForm({...form, q2custom: e.target.value})}
+                                       placeholder="请说明…"
+                                       className="mt-3 w-full p-3 bg-[#faf6f0] border border-[#d4c5b2] rounded-xl outline-none focus:ring-2 ring-[#8b4513]/20 text-[#2c1810] placeholder-[#b8a99a] text-sm" />
+                            )}
+                        </QuestionBlock>
+
+                        {/* Q3-Q5 文本题 */}
+                        {['q3','q4','q5'].map(key => (
+                            <QuestionBlock key={key} label={QUESTIONS[key].label}>
+                                <textarea value={form[key]}
+                                          onChange={e => setForm({...form, [key]: e.target.value})}
+                                          rows={key === 'q5' ? 4 : 3}
+                                          placeholder="落墨于此…"
+                                          className="w-full p-4 bg-[#faf6f0] border border-[#d4c5b2] rounded-xl outline-none focus:ring-2 ring-[#8b4513]/20 text-[#2c1810] placeholder-[#b8a99a] text-sm resize-none" />
+                            </QuestionBlock>
+                        ))}
+
+                        {/* Q6 姓名（选填） */}
+                        <QuestionBlock label={QUESTIONS.q6.label}>
+                            <input value={form.q6} onChange={e => setForm({...form, q6: e.target.value})}
+                                   placeholder="你的名字（可不填）"
+                                   className="w-full p-4 bg-[#faf6f0] border border-[#d4c5b2] rounded-xl outline-none focus:ring-2 ring-[#8b4513]/20 text-[#2c1810] placeholder-[#b8a99a] text-sm" />
+                        </QuestionBlock>
+
+                        {/* 图片上传 */}
+                        <QuestionBlock label="附上一张图片（可选）">
+                            <div className="flex flex-col sm:flex-row items-start gap-4">
+                                {photoPreview ? (
+                                    <div className="relative">
+                                        <img src={photoPreview} className="w-28 h-28 object-cover rounded-2xl border border-[#d4c5b2] shadow-sm" />
+                                        <button onClick={() => { setPhoto(null); setPhotoPreview(null); }}
+                                                className="absolute -top-2 -right-2 w-6 h-6 bg-[#b22222] text-white rounded-full flex items-center justify-center text-xs font-bold hover:bg-[#8b1a1a]">
+                                            ×
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <div className="w-28 h-28 border-2 border-dashed border-[#d4c5b2] rounded-2xl flex items-center justify-center text-[#b8a99a] bg-[#faf6f0]">
+                                        <Icon name="image" size={28} />
+                                    </div>
+                                )}
+                                <div className="flex-1">
+                                    <input type="file" accept="image/*" onChange={handlePhoto}
+                                           className="w-full text-sm text-[#8b7355] file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-[#f5efe6] file:text-[#8b7355] file:shadow-sm hover:file:bg-[#ede5d8] transition-all cursor-pointer" />
+                                    <p className="text-[10px] text-[#b8a99a] mt-2">支持 JPG/PNG，不超过 5MB</p>
+                                </div>
+                            </div>
+                        </QuestionBlock>
+
+                        {/* 提交按钮 */}
+                        <div className="pt-4">
+                            <button onClick={handleSubmit} disabled={submitting}
+                                    className="w-full py-4 bg-gradient-to-r from-[#2c1810] to-[#4a2c1a] text-white rounded-2xl font-bold text-lg shadow-xl shadow-[#2c1810]/15 hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
+                                    style={{fontFamily:'serif'}}>
+                                {submitting ? (
+                                    <><Icon name="loader-2" size={20} className="animate-spin" /> 封缄中…</>
+                                ) : (
+                                    <><Icon name="send" size={20} /> 匿名投递 · 缄封寄出</>
+                                )}
+                            </button>
+                            <p className="text-center text-[11px] text-[#b8a99a] mt-3 tracking-wider">
+                                笺启墨落，此心可鉴 · 你的身份仅馆长可见
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ----- 子组件 -----
+        function QuestionBlock({ label, required, children }) {
+            return (
+                <div>
+                    <div className="flex items-center gap-2 mb-3">
+                        {required && (
+                            <span className="text-[#b22222] text-sm font-black">*</span>
+                        )}
+                        <span className="text-[#2c1810] font-bold text-sm" style={{fontFamily:'serif'}}>{label}</span>
+                    </div>
+                    {children}
+                </div>
+            );
+        }
+
+        function RadioGroup({ name, value, onChange, options }) {
+            return (
+                <div className="flex flex-wrap gap-2">
+                    {options.map(opt => (
+                        <label key={opt} className="radio-card cursor-pointer">
+                            <input type="radio" name={name} value={opt} checked={value === opt}
+                                   onChange={() => onChange(opt)} className="sr-only" />
+                            <span className="radio-label inline-block px-4 py-2 border-2 border-[#d4c5b2] rounded-xl text-sm font-bold text-[#8b7355] bg-white transition-all hover:border-[#b22222]/50">
+                                {opt}
+                            </span>
+                        </label>
+                    ))}
+                </div>
+            );
+        }
+
+        // 启动
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
