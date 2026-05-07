@@ -43,6 +43,23 @@
             return createElement("svg", attrs, ...children);
         };
 
+        // ======================== LogoImg 组件（带文字占位）=======================
+        const LogoImg = () => {
+            const [failed, setFailed] = React.useState(false);
+            if (failed) {
+                return React.createElement("div",
+                    { className: "w-full h-full flex items-center justify-center text-white font-black text-xl", style: { fontFamily: 'serif' } },
+                    "書"
+                );
+            }
+            return React.createElement("img", {
+                src: "./assets/logo2.jpg",
+                alt: "小羽书屋",
+                className: "w-full h-full object-cover",
+                onError: () => setFailed(true)
+            });
+        };
+
         // ======================== 通知配置 ========================
         const NOTIFY_CONFIG = {
             enabled: true,
@@ -267,7 +284,7 @@
                     <div className="h-screen flex items-center justify-center bg-[#faf6f0]">
                         <div className="text-center">
                             <div className="w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center overflow-hidden shadow-lg">
-                                <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                                <LogoImg />
                             </div>
                             <p className="text-[#8b7355] text-sm">正在叩门…</p>
                         </div>
@@ -564,7 +581,7 @@
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#faf6f0]/80 backdrop-blur-sm">
                             <div className="text-center">
                                 <div className={`w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center overflow-hidden shadow-lg ${adminMode ? 'ring-2 ring-[#660874]/30' : ''}`}>
-                                    <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                                    <LogoImg />
                                 </div>
                                 <p className="text-[#8b7355] text-sm font-medium">执钥中，请稍候…</p>
                             </div>
@@ -578,7 +595,7 @@
                     <div className="w-[90%] max-w-[440px] p-6 sm:p-10 bg-white rounded-[3rem] shadow-2xl shadow-[#2c1810]/10 relative z-10 animate-in border border-[#d4c5b2]/30">
                         <div className="text-center mb-8">
                             <div className={`w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center overflow-hidden shadow-lg ${adminMode ? 'ring-2 ring-[#660874]/30' : ''}`}>
-                                <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                                <LogoImg />
                             </div>
                             <h1 className="text-2xl font-black tracking-widest text-[#2c1810]" style={{ fontFamily: 'serif' }}>小羽书屋</h1>
                             {adminMode && <p className="text-[11px] font-bold text-[#660874] tracking-[0.2em] mt-1">清华大学 · 馆藏管理系统</p>}
@@ -796,7 +813,7 @@
                     <aside className={`w-72 border-r border-[#d4c5b2]/30 bg-white p-8 flex flex-col z-20 shadow-sm fixed inset-y-0 left-0 transition-transform duration-300 lg:relative lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                         <div className="flex items-center gap-3 mb-10">
                             <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-[#b22222]/20">
-                                <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                                <LogoImg />
                             </div>
                             <h2 className="text-xl font-black tracking-tighter text-[#2c1810]" style={{ fontFamily: 'serif' }}>小羽书屋</h2>
                             <button onClick={() => setSidebarOpen(false)} className="lg:hidden ml-auto p-2 text-[#8b7355] hover:bg-[#faf6f0] rounded-full transition-colors">
