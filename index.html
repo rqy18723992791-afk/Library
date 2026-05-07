@@ -419,6 +419,7 @@
                             if (signInErr.message === 'Invalid login credentials') {
                                 setMsg({ type: 'err', text: '密码错误，请重新输入' });
                             } else {
+                                console.error('[登录诊断] Auth 登录错误（邮箱已注册但登录失败）:', signInErr.message);
                                 setMsg({ type: 'warn', text: '该 QQ 邮箱已注册，请直接登录。如忘记密码，请联系管理员重置。' });
                             }
                             setLoading(false);
@@ -441,18 +442,10 @@
                         setRedirecting(true);
                         setTimeout(() => onLogin(userData), 300);
                     } else {
-                        // 未在 readers 表中找到 → 额外检查 Supabase Auth 中是否已存在
-                        const { error: checkAuthErr } = await supabase.auth.signInWithPassword({ email: e, password: '_check_exists_' + Date.now() });
-                        if (checkAuthErr && checkAuthErr.message !== 'Invalid login credentials') {
-                            // 非 "Invalid login credentials" 之外的错误，说明无法确定，继续流程
-                        } else if (checkAuthErr && checkAuthErr.message === 'Invalid login credentials') {
-                            // 该邮箱在 Supabase Auth 中已存在（但 readers 表无记录），拦截注册
-                            setMsg({ type: 'warn', text: '该 QQ 邮箱已注册，请直接登录。' });
-                            setLoading(false);
-                            return;
-                        }
-
-                        // 未注册 → 发送验证码
+                        // readers 表无记录 → 直接发送验证码（注册流程）
+                        // 注：不再用 signInWithPassword 试探 Auth，因为 Supabase 对"邮箱不存在"
+                        // 和"密码错误"均返回相同错误（防枚举），无法区分。
+                        // Edge Function 实际注册时会精确处理 "User already registered"。
                         const result = await sendEmailOTP(e);
                         if (!result.success) {
                             setMsg({ type: 'err', text: '验证码发送失败：' + (result.code || '请稍后重试') });
@@ -465,6 +458,7 @@
                         setLoading(false);
                     }
                 } catch(err) {
+                    console.error('[登录/注册异常] 邮箱:', e, '错误:', err);
                     setMsg({ type: 'err', text: '网络异常：' + (err.message || '请稍后重试') });
                     setLoading(false);
                 }
@@ -514,7 +508,15 @@
                         body: { email: e, password, name: registerName.trim() }
                     });
                     if (error || !data?.success) {
-                        setMsg({ type: 'err', text: '注册失败：' + (error?.message || data?.error || '未知错误') });
+                        const errMsg = error?.message || data?.error || '未知错误';
+                        console.error('[注册失败 400] 邮箱:', e, '详细错误:', errMsg, '完整响应:', JSON.stringify({ data, error }));
+                        if (errMsg.includes('already registered') || errMsg.includes('User already')) {
+                            setMsg({ type: 'warn', text: '该 QQ 邮箱已注册，请直接登录。若忘记密码，请联系管理员重置。' });
+                        } else if (errMsg.includes('密码') || errMsg.includes('password')) {
+                            setMsg({ type: 'err', text: '注册失败：密码不符合安全要求，请使用至少 6 位且包含字母和数字的密码' });
+                        } else {
+                            setMsg({ type: 'err', text: '注册失败：' + errMsg });
+                        }
                         setLoading(false);
                         return;
                     }
@@ -545,6 +547,7 @@
                     setRedirecting(true);
                     setTimeout(() => onLogin(userData), 200);
                 } catch(err) {
+                    console.error('[注册异常] 邮箱:', e, '异常:', err);
                     setMsg({ type: 'err', text: '注册异常：' + (err.message || '请稍后重试') });
                     setLoading(false);
                 }
@@ -691,7 +694,7 @@
                                 <div className="space-y-1">
                                     <label className="text-[11px] font-bold text-[#8b7355] uppercase ml-2 tracking-widest">邮箱</label>
                                     <input value={email} onChange={e => setEmail(e.target.value)}
-                                           className={cls.input} placeholder={adminMode ? "管理员邮箱" : "your@email.com"} type="text" inputMode="email" autoComplete="email" />
+                                           className={cls.input} placeholder={adminMode ? "管理员邮箱" : "请输入您的qq.com"} type="text" inputMode="email" autoComplete="email" />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[11px] font-bold text-[#8b7355] uppercase ml-2 tracking-widest">密码</label>
