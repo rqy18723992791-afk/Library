@@ -266,7 +266,9 @@
                 return (
                     <div className="h-screen flex items-center justify-center bg-[#faf6f0]">
                         <div className="text-center">
-                            <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-[#b22222] flex items-center justify-center text-white font-black text-xl" style={{ fontFamily: 'serif' }}>書</div>
+                            <div className="w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center overflow-hidden shadow-lg">
+                                <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                            </div>
                             <p className="text-[#8b7355] text-sm">正在叩门…</p>
                         </div>
                     </div>
@@ -561,8 +563,9 @@
                     {redirecting && (
                         <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#faf6f0]/80 backdrop-blur-sm">
                             <div className="text-center">
-                                <div className={`w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center text-white font-black text-xl shadow-lg animate-pulse ${adminMode ? 'bg-[#660874] shadow-[#660874]/20' : 'bg-[#b22222] shadow-[#b22222]/20'}`}
-                                     style={{ fontFamily: 'serif' }}>書</div>
+                                <div className={`w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center overflow-hidden shadow-lg ${adminMode ? 'ring-2 ring-[#660874]/30' : ''}`}>
+                                    <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                                </div>
                                 <p className="text-[#8b7355] text-sm font-medium">执钥中，请稍候…</p>
                             </div>
                         </div>
@@ -574,8 +577,9 @@
 
                     <div className="w-[90%] max-w-[440px] p-6 sm:p-10 bg-white rounded-[3rem] shadow-2xl shadow-[#2c1810]/10 relative z-10 animate-in border border-[#d4c5b2]/30">
                         <div className="text-center mb-8">
-                            <div className={`w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center text-white font-black text-xl shadow-lg ${adminMode ? 'bg-[#660874] shadow-[#660874]/20' : 'bg-[#b22222] shadow-[#b22222]/20'}`}
-                                 style={{ fontFamily: 'serif' }}>書</div>
+                            <div className={`w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center overflow-hidden shadow-lg ${adminMode ? 'ring-2 ring-[#660874]/30' : ''}`}>
+                                <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                            </div>
                             <h1 className="text-2xl font-black tracking-widest text-[#2c1810]" style={{ fontFamily: 'serif' }}>小羽书屋</h1>
                             {adminMode && <p className="text-[11px] font-bold text-[#660874] tracking-[0.2em] mt-1">清华大学 · 馆藏管理系统</p>}
                             <p className="text-[#8b7355] text-xs mt-2 tracking-wider">
@@ -711,7 +715,13 @@
             const [view, setView] = useState(user.is_admin ? 'admin_home' : 'reader_home');
             const [search, setSearch] = useState('');
             const [editingBook, setEditingBook] = useState(null);
-            const filteredBooks = db.books.filter(b => b.title.includes(search) || b.isbn.includes(search) || (b.author && b.author.includes(search)));
+
+            // 非管理员过滤隐藏图书
+            const visibleBooks = user && user.is_admin
+                ? db.books
+                : (db.books || []).filter(b => !b.is_hidden);
+
+            const filteredBooks = visibleBooks.filter(b => b.title.includes(search) || b.isbn.includes(search) || (b.author && b.author.includes(search)));
 
             const handleEditBook = (book) => {
                 setEditingBook(book);
@@ -749,19 +759,31 @@
                 setDb(prev => ({ ...prev, books: prev.books.filter(b => b.id !== bookId) }));
             };
 
+            const handleToggleBookHide = async (book, currentHidden) => {
+                const action = currentHidden ? '取消隐藏' : '隐藏';
+                const bookTitle = book.title || '该图书';
+                if (!confirm(`确定要${action}《${bookTitle}》吗？`)) return;
+                const { error } = await supabase.from('books').update({ is_hidden: !currentHidden }).eq('id', book.id);
+                if (error) { alert('操作失败：' + error.message); return; }
+                setDb(prev => ({
+                    ...prev,
+                    books: prev.books.map(b => b.id === book.id ? { ...b, is_hidden: !currentHidden } : b)
+                }));
+            };
+
             return (
                 <div className="flex h-screen overflow-hidden w-full max-w-full relative">
                     {/* Mobile hamburger */}
                     <div className="lg:hidden fixed top-4 left-4 z-30 flex flex-col items-center">
-                        <button onClick={() => setSidebarOpen(true)}
+                        <button onClick={() => setSidebarOpen(prev => !prev)}
                                 className="w-11 h-11 bg-white rounded-2xl shadow-lg border border-[#d4c5b2]/40 flex flex-col items-center justify-center gap-[3px] text-[#2c1810] hover:bg-[#faf6f0] active:scale-90 transition-all group"
-                                aria-label="展开导航菜单">
+                                aria-label={sidebarOpen ? '收起导航菜单' : '展开导航菜单'}>
                             <span className="block w-[18px] h-[2px] bg-[#2c1810] rounded-full transition-all group-hover:bg-[#b22222]"></span>
                             <span className="block w-[18px] h-[2px] bg-[#2c1810] rounded-full transition-all group-hover:bg-[#b22222]"></span>
                             <span className="block w-[18px] h-[2px] bg-[#2c1810] rounded-full transition-all group-hover:bg-[#b22222]"></span>
                         </button>
-                        <span className="mt-1.5 text-[10px] font-bold text-[#8b7355] bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm border border-[#d4c5b2]/20 whitespace-nowrap">
-                            点击展开
+                        <span className="mt-1.5 text-[10px] font-bold text-[#8b7355] bg-white/80 backdrop-blur-sm px-2 py-0.5 rounded-full shadow-sm border border-[#d4c5b2]/20 whitespace-nowrap transition-all">
+                            {sidebarOpen ? '点击收起' : '点击展开'}
                         </span>
                     </div>
 
@@ -773,8 +795,9 @@
                     {/* Sidebar - drawer on mobile, static sidebar on lg+ */}
                     <aside className={`w-72 border-r border-[#d4c5b2]/30 bg-white p-8 flex flex-col z-20 shadow-sm fixed inset-y-0 left-0 transition-transform duration-300 lg:relative lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                         <div className="flex items-center gap-3 mb-10">
-                            <div className="w-12 h-12 rounded-xl bg-[#b22222] flex items-center justify-center text-white font-black text-lg shadow-lg shadow-[#b22222]/20"
-                                 style={{ fontFamily: 'serif' }}>書</div>
+                            <div className="w-12 h-12 rounded-xl flex items-center justify-center overflow-hidden shadow-lg shadow-[#b22222]/20">
+                                <img src="./需求/log2.jpg" alt="小羽书屋" className="w-full h-full object-cover" />
+                            </div>
                             <h2 className="text-xl font-black tracking-tighter text-[#2c1810]" style={{ fontFamily: 'serif' }}>小羽书屋</h2>
                             <button onClick={() => setSidebarOpen(false)} className="lg:hidden ml-auto p-2 text-[#8b7355] hover:bg-[#faf6f0] rounded-full transition-colors">
                                 <Icon name="x" size={20} />
@@ -815,10 +838,10 @@
                         </div>
                     </aside>
 
-                    <main className="flex-1 overflow-y-auto overflow-x-hidden bg-[#faf6f0] p-4 sm:p-8 lg:p-12 max-w-full box-border">
+                    <main className={`flex-1 overflow-y-auto overflow-x-hidden bg-[#faf6f0] p-4 sm:p-8 lg:p-12 max-w-full box-border transition-all duration-300 ${sidebarOpen ? 'max-lg:pl-72' : ''}`}>
                         {view === 'reader_home' && <ReaderHome db={db} setView={setView} user={user} />}
                         {view === 'admin_home' && <AdminHome db={db} user={user} />}
-                        {view === 'search' && <SearchView books={filteredBooks} onBorrow={borrowBook} search={search} setSearch={setSearch} user={user} deleteBook={deleteBook} onEditBook={handleEditBook} />}
+                        {view === 'search' && <SearchView books={filteredBooks} onBorrow={borrowBook} search={search} setSearch={setSearch} user={user} deleteBook={deleteBook} onEditBook={handleEditBook} onToggleBookHide={handleToggleBookHide} />}
                         {view === 'my' && <MyBorrowings db={db} user={user} />}
                         {view === 'add' && <AddBook editBook={editingBook} onSaved={() => { setEditingBook(null); }} />}
                         {view === 'users' && <UsersManagement db={db} setDb={setDb} user={user} />}
@@ -972,7 +995,7 @@
         }
 
         // ======================== SearchView ========================
-        function SearchView({ books, onBorrow, search, setSearch, user, deleteBook, onEditBook }) {
+        function SearchView({ books, onBorrow, search, setSearch, user, deleteBook, onEditBook, onToggleBookHide }) {
             return (
                 <div className="animate-in max-w-6xl mx-auto">
                     <div className="relative mb-8 max-w-2xl mx-auto">
@@ -983,7 +1006,7 @@
                     </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         {books.map(b => (
-                            <div key={b.id} className="bg-white p-5 rounded-[2rem] flex gap-5 border border-[#d4c5b2]/30 hover:shadow-xl hover:-translate-y-1 transition-all group">
+                            <div key={b.id} className={`bg-white p-5 rounded-[2rem] flex gap-5 border shadow-sm transition-all group ${b.is_hidden ? 'border-red-200/50 opacity-60' : 'border-[#d4c5b2]/30 hover:shadow-xl hover:-translate-y-1'}`}>
                                 <img src={b.cover} className="w-28 h-40 rounded-xl object-cover shadow-md border border-[#d4c5b2]/30 group-hover:scale-105 transition-transform" />
                                 <div className="flex-1 py-1 flex flex-col min-w-0">
                                     <div className="flex justify-between items-start mb-2">
@@ -1000,6 +1023,11 @@
                                         </div>
                                         {user && user.is_admin && (
                                         <div className="flex items-center gap-1.5">
+                                            <button onClick={() => onToggleBookHide && onToggleBookHide(b, b.is_hidden)}
+                                                    className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl transition-all ${b.is_hidden ? 'text-green-700 bg-green-50 hover:bg-green-100' : 'text-amber-700 bg-amber-50 hover:bg-amber-100'}`}>
+                                                <Icon name={b.is_hidden ? 'eye' : 'eye-off'} size={14} />
+                                                {b.is_hidden ? '显示' : '隐藏'}
+                                            </button>
                                             <button onClick={() => onEditBook && onEditBook(b)}
                                                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-[#2c1810] bg-[#faf6f0] hover:bg-[#e8ddd0] rounded-xl transition-all">
                                                 <Icon name="pencil" size={14} /> 修改
@@ -1108,6 +1136,12 @@
             const [readerEvalModal, setReaderEvalModal] = useState(null);
             const [readerEvals, setReaderEvals] = useState([]);
             const [readerEvalsLoading, setReaderEvalsLoading] = useState(false);
+
+            // 基于时间顺序的动态编号（由旧到新 #0001 开始）
+            const readerEvalNumberMap = React.useMemo(() => {
+                const sorted = [...readerEvals].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                return new Map(sorted.map((e, i) => [e.id, i + 1]));
+            }, [readerEvals]);
 
             // 从 Supabase 加载读者数据
             const fetchReaders = async () => {
@@ -1455,7 +1489,7 @@
                                             <div key={ev.id} className="bg-[#faf6f0] p-5 rounded-2xl border border-[#d4c5b2]/20">
                                                 <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#d4c5b2]/20">
                                                     <p className="text-[10px] text-[#8b7355] font-medium">{new Date(ev.created_at).toLocaleString('zh-CN')}</p>
-                                                    <span className="text-[10px] text-[#b8a99a] font-mono">#{String(ev.id).padStart(4, '0')}</span>
+                                                    <span className="text-[10px] text-[#b8a99a] font-mono">#{String(readerEvalNumberMap.get(ev.id) || '?').padStart(4, '0')}</span>
                                                 </div>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
                                                     <div className="flex gap-2">
@@ -1561,10 +1595,16 @@
             const [q6Focused, setQ6Focused] = useState(false);
             const fileRef = useRef(null);
 
+            // 基于时间顺序的动态编号（由旧到新 #0001 开始）
+            const evalNumberMap = React.useMemo(() => {
+                const sorted = [...evals].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                return new Map(sorted.map((e, i) => [e.id, i + 1]));
+            }, [evals]);
+
             const isGuest = user.role === 'GUEST';
 
             const fetchEvals = async () => {
-                let query = supabase.from('evaluations').select('*').order('created_at', { ascending: false });
+                let query = supabase.from('evaluations').select('*').eq('is_hidden', false).order('created_at', { ascending: false });
                 if (isGuest && user.guest_token) {
                     query = query.eq('guest_token', user.guest_token);
                 }
@@ -1779,7 +1819,7 @@
                                                 <p className="text-[10px] text-[#8b7355]">{new Date(e.created_at).toLocaleString('zh-CN')}</p>
                                             </div>
                                         </div>
-                                        <span className="text-[10px] text-[#b8a99a] font-mono">#{String(e.id).padStart(4, '0')}</span>
+                                        <span className="text-[10px] text-[#b8a99a] font-mono">#{String(evalNumberMap.get(e.id) || '?').padStart(4, '0')}</span>
                                     </div>
                                     <div className="space-y-2.5 text-sm">
                                         <div className="flex gap-2">
@@ -1832,6 +1872,12 @@
             const [readerInfoMap, setReaderInfoMap] = useState({});
             const [showReaderInfo, setShowReaderInfo] = useState({});
 
+            // 基于时间顺序的动态编号（由旧到新 #0001 开始）
+            const evalNumberMap = React.useMemo(() => {
+                const sorted = [...evals].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                return new Map(sorted.map((e, i) => [e.id, i + 1]));
+            }, [evals]);
+
             const fetchEvals = async () => {
                 const { data, error } = await supabase.from('evaluations').select('*').order('created_at', { ascending: false });
                 if (!error && data) {
@@ -1862,6 +1908,14 @@
                 else { fetchEvals(); }
             };
 
+            const handleToggleHide = async (id, currentHidden) => {
+                const action = currentHidden ? '取消隐藏' : '隐藏';
+                if (!confirm(`确定要${action}这条评价吗？`)) return;
+                const { error } = await supabase.from('evaluations').update({ is_hidden: !currentHidden }).eq('id', id);
+                if (error) { alert('操作失败：' + error.message); }
+                else { fetchEvals(); }
+            };
+
             if (!user.is_admin) {
                 return (
                     <div className="animate-in max-w-4xl mx-auto text-center py-20">
@@ -1888,7 +1942,12 @@
                     <div className="flex justify-between items-end mb-8">
                         <div>
                             <h2 className="text-3xl font-black text-[#2c1810]" style={{ fontFamily: 'serif' }}>匿名评价管理</h2>
-                            <p className="text-[#8b7355] text-sm mt-2">共 {evals.length} 封素笺投递</p>
+                            <p className="text-[#8b7355] text-sm mt-2">
+                                共 {evals.length} 封素笺投递
+                                {evals.filter(e => e.is_hidden).length > 0 && (
+                                    <span className="text-red-500 ml-2">· {evals.filter(e => e.is_hidden).length} 封已隐藏</span>
+                                )}
+                            </p>
                         </div>
                     </div>
 
@@ -1903,7 +1962,7 @@
                     ) : (
                         <div className="grid grid-cols-1 gap-5">
                             {evals.map(e => (
-                                <div key={e.id} className="bg-white p-6 rounded-[2rem] border border-[#d4c5b2]/30 shadow-sm hover:shadow-md transition-shadow">
+                                <div key={e.id} className={`bg-white p-6 rounded-[2rem] border shadow-sm hover:shadow-md transition-all ${e.is_hidden ? 'border-red-200/50 opacity-60' : 'border-[#d4c5b2]/30'}`}>
                                     <div className="flex items-start justify-between mb-4 pb-4 border-b border-[#d4c5b2]/20">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-full bg-[#b22222]/10 text-[#b22222] flex items-center justify-center font-bold text-sm"
@@ -1915,22 +1974,32 @@
                                                 <p className="text-[10px] text-[#8b7355]">{new Date(e.created_at).toLocaleString('zh-CN')}</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-2 flex-wrap justify-end">
+                                            {e.is_hidden && (
+                                                <span className="px-2 py-1 bg-red-50 text-red-600 text-[10px] font-bold rounded-full border border-red-200">
+                                                    已隐藏
+                                                </span>
+                                            )}
                                             {e.guest_token && (
                                                 <span className="px-2.5 py-1 bg-amber-50 text-amber-700 text-[10px] font-bold rounded-full border border-amber-200">游客投递</span>
                                             )}
+                                            <button onClick={() => handleToggleHide(e.id, e.is_hidden)}
+                                                    className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 ${e.is_hidden ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100' : 'bg-[#faf6f0] text-amber-700 border-amber-200/60 hover:bg-amber-50'}`}>
+                                                <Icon name={e.is_hidden ? 'eye' : 'eye-off'} size={14} />
+                                                {e.is_hidden ? '取消隐藏' : '隐藏'}
+                                            </button>
+                                            <button onClick={() => handleDelete(e.id)}
+                                                    className="px-3 py-1.5 text-xs font-bold rounded-xl border border-red-200/60 text-red-500 bg-[#faf6f0] hover:bg-red-50 transition-all flex items-center gap-1.5">
+                                                <Icon name="trash-2" size={14} />
+                                                删除
+                                            </button>
                                             {e.user_id && readerInfoMap[e.user_id] && (
                                                 <button onClick={() => setShowReaderInfo(prev => ({ ...prev, [e.id]: !prev[e.id] }))}
                                                         className={`px-2.5 py-1 text-[10px] font-bold rounded-full border transition-colors ${showReaderInfo[e.id] ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-[#faf6f0] text-[#8b7355] border-[#d4c5b2]/40 hover:bg-indigo-50 hover:text-indigo-600'}`}>
                                                     {showReaderInfo[e.id] ? '收起读者信息' : '查看读者信息'}
                                                 </button>
                                             )}
-                                            <span className="text-[10px] text-[#b8a99a] font-mono">#{String(e.id).padStart(4, '0')}</span>
-                                            <button onClick={() => handleDelete(e.id)}
-                                                    className="p-2 text-[#b8a99a] hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                                    title="删除评价">
-                                                <Icon name="trash-2" size={16} />
-                                            </button>
+                                            <span className="text-[10px] text-[#b8a99a] font-mono">#{String(evalNumberMap.get(e.id) || '?').padStart(4, '0')}</span>
                                         </div>
                                     </div>
 
