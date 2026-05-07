@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com https://fonts.googleapis.com https://www.gstatic.com https://agakzhlswzimjylewvcg.supabase.co wss://agakzhlswzimjylewvcg.supabase.co; img-src 'self' data: https: blob:; media-src 'self' https:;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com https://fonts.googleapis.com https://www.gstatic.com https://agakzhlswzimjylewvcg.supabase.co wss://agakzhlswzimjylewvcg.supabase.co; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://agakzhlswzimjylewvcg.supabase.co; connect-src 'self' https://agakzhlswzimjylewvcg.supabase.co wss://agakzhlswzimjylewvcg.supabase.co https://api.emailjs.com https://cdn.jsdelivr.net https://sctapi.ftqq.com; img-src 'self' data: https: blob:; media-src 'self' https:;">
     <title>小羽书屋 · 数字化馆藏管理</title>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -11,6 +11,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/emailjs.min.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;700;900&display=swap');
@@ -29,6 +30,14 @@
         const SUPABASE_URL = 'https://agakzhlswzimjylewvcg.supabase.co';
         const SUPABASE_KEY = 'sb_publishable_YzYzzdOVSQzaNr1s3KjtLQ_KyHXfs5P';
         const supabase = (window.supabasejs || window.supabase).createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // EmailJS 初始化（CDN 加载失败时容错，不影响页面核心功能）
+        const EMAILJS_CONFIG = {
+            serviceId: 'service_z1ndvha',
+            templateId: 'template_uobd5v8',
+            publicKey: 'Lp6hT2pYvEOf-f2R9'
+        };
+        try { emailjs.init(EMAILJS_CONFIG.publicKey); } catch (e) { console.warn('EmailJS init 失败（不影响核心功能）:', e); }
 
         const { useState, useEffect, useMemo, useRef, createElement } = React;
 
@@ -1568,6 +1577,8 @@
                 if (isGuest && user.guest_token) {
                     query = query.eq('guest_token', user.guest_token);
                 }
+                // 用户端仅显示未隐藏的评价
+                query = query.or('is_hidden.is.null,is_hidden.eq.false');
                 const { data, error } = await query;
                 if (!error && data) setEvals(data);
                 setLoading(false);
@@ -1617,6 +1628,7 @@
                     q4_personality: form.q6.trim() || null,
                     photo_url: photoUrl || null,
                     user_id: isGuest ? null : (user.id || null),
+                    user_email: isGuest ? null : (user.email || null),
                     guest_token: isGuest ? (user.guest_token || null) : null
                 };
 
@@ -1809,6 +1821,18 @@
                                             </div>
                                         )}
                                     </div>
+                                    {e.admin_reply && (
+                                        <div className="mt-4 pt-4 border-t border-[#d4c5b2]/20">
+                                            <div className="bg-[#faf6f0] p-4 rounded-2xl border border-[#d4c5b2]/30 shadow-inner">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="w-6 h-6 rounded-full bg-[#2c1810] flex items-center justify-center text-white font-bold text-[8px]">店</div>
+                                                    <span className="text-[10px] font-black text-[#2c1810] tracking-widest">店主回复</span>
+                                                </div>
+                                                <p className="text-sm text-[#2c1810] leading-relaxed">{e.admin_reply}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {e.photo_url && (
                                         <div className="mt-4 pt-4 border-t border-[#d4c5b2]/20">
                                             <img src={e.photo_url}
@@ -1831,6 +1855,9 @@
             const [loading, setLoading] = useState(true);
             const [readerInfoMap, setReaderInfoMap] = useState({});
             const [showReaderInfo, setShowReaderInfo] = useState({});
+            const [replyModal, setReplyModal] = useState(null);
+            const [replyContent, setReplyContent] = useState('');
+            const [replySending, setReplySending] = useState(false);
 
             const fetchEvals = async () => {
                 const { data, error } = await supabase.from('evaluations').select('*').order('created_at', { ascending: false });
@@ -1860,6 +1887,50 @@
                 const { error } = await supabase.from('evaluations').delete().eq('id', id);
                 if (error) { alert('删除失败：' + error.message); }
                 else { fetchEvals(); }
+            };
+
+            const handleToggleHidden = async (ev, currentHidden) => {
+                const action = currentHidden ? '显示' : '隐藏';
+                if (!confirm(`确定要${action}这条评价吗？`)) return;
+                const newVal = currentHidden ? false : true;
+                const { error } = await supabase.from('evaluations').update({ is_hidden: newVal }).eq('id', ev.id);
+                if (error) { alert('操作失败：' + error.message); return; }
+                setEvals(prev => prev.map(x => x.id === ev.id ? { ...x, is_hidden: newVal } : x));
+            };
+
+            const handleSendReply = async () => {
+                if (!replyContent.trim()) return alert('请输入回复内容');
+                setReplySending(true);
+                try {
+                    const { error: dbError } = await supabase.from('evaluations').update({
+                        admin_reply: replyContent.trim()
+                    }).eq('id', replyModal.id);
+                    if (dbError) { alert('回复保存失败：' + dbError.message); setReplySending(false); return; }
+
+                    // 发送 EmailJS 通知
+                    if (replyModal.user_email) {
+                        try {
+                            await emailjs.send(EMAILJS_CONFIG.serviceId, EMAILJS_CONFIG.templateId, {
+                                reply_content: replyContent.trim(),
+                                user_email: replyModal.user_email,
+                                to_email: replyModal.user_email,
+                                user_name: replyModal.q4_personality || '读者',
+                                eval_time: new Date(replyModal.created_at).toLocaleString('zh-CN'),
+                            });
+                        } catch (e) {
+                            console.warn('邮件发送失败（不影响回复保存）:', e);
+                        }
+                    }
+
+                    alert('回复成功！' + (replyModal.user_email ? '已通过邮件通知读者。' : ''));
+                    setReplyModal(null);
+                    setReplyContent('');
+                    fetchEvals();
+                } catch (err) {
+                    alert('操作失败：' + (err.message || err));
+                } finally {
+                    setReplySending(false);
+                }
             };
 
             if (!user.is_admin) {
@@ -1925,6 +1996,14 @@
                                                     {showReaderInfo[e.id] ? '收起读者信息' : '查看读者信息'}
                                                 </button>
                                             )}
+                                            <button onClick={() => handleToggleHidden(e, e.is_hidden)} title={e.is_hidden ? '显示评价' : '隐藏评价'}
+                                                    className={`p-2 rounded-lg transition-colors ${e.is_hidden ? 'text-amber-500 hover:bg-amber-50' : 'text-[#b8a99a] hover:text-amber-500 hover:bg-amber-50'}`}>
+                                                <Icon name={e.is_hidden ? 'eye-off' : 'eye'} size={16} />
+                                            </button>
+                                            <button onClick={() => { setReplyModal(e); setReplyContent(e.admin_reply || ''); }} title="回复评价"
+                                                    className="p-2 text-[#b8a99a] hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
+                                                <Icon name="message-circle" size={16} />
+                                            </button>
                                             <span className="text-[10px] text-[#b8a99a] font-mono">#{String(e.id).padStart(4, '0')}</span>
                                             <button onClick={() => handleDelete(e.id)}
                                                     className="p-2 text-[#b8a99a] hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
@@ -1961,6 +2040,18 @@
                                         </div>
                                     </div>
 
+                                    {e.admin_reply && (
+                                        <div className="mt-4 pt-4 border-t border-[#d4c5b2]/20">
+                                            <div className="bg-[#faf6f0] p-4 rounded-2xl border border-[#d4c5b2]/30 shadow-inner">
+                                                <div className="flex items-center gap-2 mb-2">
+                                                    <div className="w-6 h-6 rounded-full bg-[#2c1810] flex items-center justify-center text-white font-bold text-[8px]">店</div>
+                                                    <span className="text-[10px] font-black text-[#2c1810] tracking-widest">店主回复</span>
+                                                </div>
+                                                <p className="text-sm text-[#2c1810] leading-relaxed">{e.admin_reply}</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {showReaderInfo[e.id] && readerInfoMap[e.user_id] && (
                                         <div className="mt-4 pt-4 border-t border-[#d4c5b2]/20 bg-gradient-to-r from-indigo-50/50 to-transparent rounded-2xl p-4">
                                             <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-2">关联读者注册信息</p>
@@ -1995,6 +2086,30 @@
                                     )}
                                 </div>
                             ))}
+                        </div>
+                    )}
+
+                    {/* 回复评价模态框 */}
+                    {replyModal && (
+                        <div className="fixed inset-0 bg-[#2c1810]/40 backdrop-blur-sm flex items-center justify-center z-50 animate-in" onClick={() => { setReplyModal(null); setReplyContent(''); }}>
+                            <div className="bg-white p-8 rounded-[2rem] shadow-2xl w-full max-w-lg mx-4 border border-[#d4c5b2]/30" onClick={e => e.stopPropagation()}>
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-xl font-black text-[#2c1810]" style={{ fontFamily: 'serif' }}>回复评价</h3>
+                                    <button onClick={() => { setReplyModal(null); setReplyContent(''); }} className="p-2 text-[#8b7355] hover:bg-[#faf6f0] rounded-full"><Icon name="x" size={20} /></button>
+                                </div>
+                                <p className="text-sm text-[#8b7355] mb-4">
+                                    回复 <strong className="text-[#2c1810]">{replyModal.q4_personality || '匿名读者'}</strong>
+                                    {replyModal.user_email && <span className="text-[#8b7355] font-normal"> · 邮件通知至 {replyModal.user_email}</span>}
+                                </p>
+                                <textarea value={replyContent} onChange={e => setReplyContent(e.target.value)}
+                                          rows={5} placeholder="输入回复内容…" maxLength={500}
+                                          className="w-full p-4 bg-[#faf6f0] border border-[#d4c5b2] rounded-xl outline-none focus:ring-2 ring-[#8b4513]/20 transition-all text-[#2c1810] placeholder-[#b8a99a] text-sm resize-none mb-4" />
+                                <p className="text-[10px] text-[#b8a99a] text-right -mt-3 mb-4">{replyContent.length}/500</p>
+                                <button onClick={handleSendReply} disabled={replySending || !replyContent.trim()}
+                                        className="w-full py-4 bg-gradient-to-r from-[#2c1810] to-[#4a2c1a] text-white rounded-xl font-bold shadow-lg shadow-[#2c1810]/20 hover:scale-[1.01] active:scale-95 transition-all disabled:opacity-60 flex items-center justify-center gap-2">
+                                    {replySending ? <><Icon name="loader-2" size={18} className="animate-spin" /> 发送中…</> : <><Icon name="send" size={18} /> 发送回复</>}
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
