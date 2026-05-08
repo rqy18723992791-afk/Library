@@ -521,31 +521,9 @@
                         return;
                     }
 
-                    // 自动登录
-                    const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email: e, password });
-                    if (signInErr) {
-                        setMsg({ type: 'err', text: '注册成功，但自动登录失败，请返回登录页' });
-                        setLoading(false);
-                        return;
-                    }
-
-                    const userData = {
-                        id: signInData.user.id,
-                        account: e,
-                        email: e,
-                        name: registerName.trim(),
-                        department: '未知院系',
-                        readerType: 'UNDERGRAD',
-                        role: 'READER',
-                        status: 'ACTIVE',
-                        phone: '',
-                        is_admin: false
-                    };
-                    localStorage.setItem("USER_SESSION", JSON.stringify(userData));
                     setLoading(false);
+                    setStep('success');
                     setMsg(null);
-                    setRedirecting(true);
-                    setTimeout(() => onLogin(userData), 200);
                 } catch(err) {
                     console.error('[注册异常] 邮箱:', e, '异常:', err);
                     setMsg({ type: 'err', text: '注册异常：' + (err.message || '请稍后重试') });
@@ -621,9 +599,13 @@
 
                         {step === 'success' ? (
                             <div className="text-center space-y-5 py-6">
-                                <div className="text-4xl">📜</div>
-                                <p className="text-[#2c1810] font-bold text-lg" style={{ fontFamily: 'serif' }}>名帖已投，验印通过</p>
-                                <p className="text-sm text-[#8b7355] leading-relaxed">正在为您打开阁门…</p>
+                                <div className="text-4xl">✅</div>
+                                <p className="text-[#2c1810] font-bold text-lg" style={{ fontFamily: 'serif' }}>注册成功，请返回登录</p>
+                                <p className="text-sm text-[#8b7355] leading-relaxed">账号已创建，前往登录页开始您的书香之旅</p>
+                                <button onClick={resetToInit}
+                                        className="mt-4 px-8 py-3.5 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 bg-gradient-to-r from-[#b22222] to-[#8b1a1a] shadow-[#b22222]/20">
+                                    前往登录
+                                </button>
                             </div>
                         ) : step === 'code' ? (
                             <div className="space-y-6">
@@ -732,7 +714,7 @@
         // ======================== Dashboard ========================
         function Dashboard({ user, db, setDb, onLogout }) {
             const [sidebarOpen, setSidebarOpen] = useState(false);
-            const [view, setView] = useState(user.is_admin ? 'admin_home' : 'reader_home');
+            const [view, setView] = useState('eval_form');
             const [search, setSearch] = useState('');
             const [editingBook, setEditingBook] = useState(null);
 
@@ -825,11 +807,11 @@
                         </div>
 
                         <div className="flex-1 space-y-1.5">
+                            <NavBtn icon="pen-line" label="书屋评价" active={view === 'eval_form'} onClick={() => { setView('eval_form'); setSidebarOpen(false); }} />
                             <NavBtn icon="home" label="系统首页" active={view.includes('home')}
                                     onClick={() => { setView(user.is_admin ? 'admin_home' : 'reader_home'); setSidebarOpen(false); }} />
                             <NavBtn icon="search" label="馆藏检索" active={view === 'search'} onClick={() => { setView('search'); setSidebarOpen(false); }} />
                             <NavBtn icon="bookmark" label="我的借阅" active={view === 'my'} onClick={() => { setView('my'); setSidebarOpen(false); }} />
-                            <NavBtn icon="pen-line" label="书屋评价" active={view === 'eval_form'} onClick={() => { setView('eval_form'); setSidebarOpen(false); }} />
                             {user.is_admin === true && (
                                 <div className="mt-8 pt-6 border-t border-[#d4c5b2]/30">
                                     <p className="text-[10px] font-bold text-[#8b7355] uppercase mb-3 px-4 tracking-widest">馆务管理</p>
