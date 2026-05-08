@@ -334,6 +334,7 @@
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [confirmPw, setConfirmPw] = useState('');
+            const [adminKey, setAdminKey] = useState('');
             const [registerName, setRegisterName] = useState('');
             const [showPw, setShowPw] = useState(false);
             const [showConfirmPw, setShowConfirmPw] = useState(false);
@@ -343,6 +344,7 @@
             const [codeErr, setCodeErr] = useState('');
             const [countdown, setCountdown] = useState(0);
             const [redirecting, setRedirecting] = useState(false);
+            const [redirectCountdown, setRedirectCountdown] = useState(0);
             const otpRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
 
             // 倒计时
@@ -352,6 +354,17 @@
                     return () => clearTimeout(t);
                 }
             }, [countdown]);
+
+            // 注册成功后自动跳转至登录页（兜底：3 秒后刷新页面）
+            useEffect(() => {
+                if (step !== 'success') { setRedirectCountdown(0); return; }
+                setRedirectCountdown(3);
+                const id = setInterval(() => {
+                    setRedirectCountdown(c => c - 1);
+                }, 1000);
+                const timer = setTimeout(() => window.location.reload(), 3000);
+                return () => { clearInterval(id); clearTimeout(timer); };
+            }, [step]);
 
             const startCountdown = () => { setCountdown(60); setTimeout(() => otpRefs[0].current?.focus(), 150); };
 
@@ -501,19 +514,35 @@
                 if (password.length < 6) return setMsg({ type: 'warn', text: '密码至少 6 位' });
                 if (password !== confirmPw) return setMsg({ type: 'warn', text: '两次密码输入不一致' });
                 if (!registerName.trim()) return setMsg({ type: 'warn', text: '请填写您的姓名' });
+                if (adminMode && adminKey !== 'xiaoyu666') return setMsg({ type: 'warn', text: '管理员密钥错误' });
                 setLoading(true); setMsg(null);
+
+                // 管理员模式 + 密钥正确 → role 设为 admin，否则为 reader
+                const role = (adminMode && adminKey === 'xiaoyu666') ? 'admin' : 'reader';
 
                 try {
                     const { data, error } = await supabase.functions.invoke('create-auth-user', {
-                        body: { email: e, password, name: registerName.trim() }
+                        body: { email: e, password, name: registerName.trim(), role }
                     });
-                    if (error || !data?.success) {
-                        const errMsg = error?.message || data?.error || '未知错误';
-                        console.error('[注册失败 400] 邮箱:', e, '详细错误:', errMsg, '完整响应:', JSON.stringify({ data, error }));
+                    if (error) {
+                        console.error('[注册网络错误] 邮箱:', e, '错误:', error);
+                        setMsg({ type: 'err', text: '网络连接异常，请检查网络后重试' });
+                        setLoading(false);
+                        return;
+                    }
+                    if (!data?.success) {
+                        const errMsg = data?.error || '未知错误';
+                        console.error('[注册失败] 邮箱:', e, '详细错误:', errMsg, '完整响应:', JSON.stringify(data));
                         if (errMsg.includes('already registered') || errMsg.includes('User already')) {
-                            setMsg({ type: 'warn', text: '该 QQ 邮箱已注册，请直接登录。若忘记密码，请联系管理员重置。' });
+                            setMsg({ type: 'warn', text: '该邮箱已被注册' });
+                        } else if (errMsg.includes('Invalid email') || errMsg.includes('invalid email')) {
+                            setMsg({ type: 'err', text: '注册失败：邮箱格式不正确' });
                         } else if (errMsg.includes('密码') || errMsg.includes('password')) {
                             setMsg({ type: 'err', text: '注册失败：密码不符合安全要求，请使用至少 6 位且包含字母和数字的密码' });
+                        } else if (errMsg.includes('rate_limit') || errMsg.includes('too many')) {
+                            setMsg({ type: 'err', text: '操作过于频繁，请稍后再试' });
+                        } else if (errMsg.includes('network') || errMsg.includes('fetch')) {
+                            setMsg({ type: 'err', text: '网络连接异常，请检查网络后重试' });
                         } else {
                             setMsg({ type: 'err', text: '注册失败：' + errMsg });
                         }
@@ -521,9 +550,44 @@
                         return;
                     }
 
-                    setLoading(false);
-                    setStep('success');
-                    setMsg(null);
+                    // Auth 创建成功，尝试创建 Profile（失败不阻塞完整流程）
+                    const userId = data?.user_id || data?.userId;
+                    if (userId) {
+                        const { error: profileErr } = await supabase.from('profiles').insert({
+                            id: userId,
+                            username: registerName.trim(),
+                            role,
+                            created_at: new Date().toISOString()
+                        });
+                        if (profileErr) {
+                            console.error('[注册警告] 账号已创建，但资料初始化失败:', profileErr);
+                            setMsg({ type: 'warn', text: '账号已创建，但资料初始化失败，请联系管理员' });
+                        }
+                    }
+
+                    // 自动登录
+                    const { data: authData, error: signInErr } = await supabase.auth.signInWithPassword({ email: e, password });
+                    if (signInErr) {
+                        console.warn('[注册自动登录失败]', signInErr);
+                        setLoading(false);
+                        setStep('success');
+                        return;
+                    }
+                    const userData = {
+                        id: authData.user.id,
+                        account: e,
+                        email: e,
+                        name: registerName.trim(),
+                        department: '未知院系',
+                        readerType: 'UNDERGRAD',
+                        role,
+                        status: 'ACTIVE',
+                        phone: '',
+                        is_admin: role === 'admin'
+                    };
+                    localStorage.setItem("USER_SESSION", JSON.stringify(userData));
+                    setRedirecting(true);
+                    setTimeout(() => onLogin(userData), 500);
                 } catch(err) {
                     console.error('[注册异常] 邮箱:', e, '异常:', err);
                     setMsg({ type: 'err', text: '注册异常：' + (err.message || '请稍后重试') });
@@ -534,7 +598,7 @@
             const resetToInit = () => {
                 setStep('init'); setMsg(null); setCodeErr('');
                 setCode(['', '', '', '', '', '']); setCountdown(0);
-                setPassword(''); setConfirmPw(''); setRegisterName(''); setShowPw(false); setShowConfirmPw(false);
+                setPassword(''); setConfirmPw(''); setAdminKey(''); setRegisterName(''); setShowPw(false); setShowConfirmPw(false);
             };
 
             const cls = {
@@ -581,7 +645,7 @@
                             <h1 className="text-2xl font-black tracking-widest text-[#2c1810]" style={{ fontFamily: 'serif' }}>小羽书屋</h1>
                             {adminMode && <p className="text-[11px] font-bold text-[#660874] tracking-[0.2em] mt-1">清华大学 · 馆藏管理系统</p>}
                             <p className="text-[#8b7355] text-xs mt-2 tracking-wider">
-                                {step === 'success' ? '验印通过 · 即将入阁'
+                                {step === 'success' ? '验印已毕 · 入阁成功'
                                     : step === 'code' ? '验印 · 查收飞鸽'
                                     : step === 'password' ? '投帖 · 落笔留名'
                                     : adminMode ? '馆长 · 执钥入阁' : '投帖 · 叩门入阁'}
@@ -599,9 +663,14 @@
 
                         {step === 'success' ? (
                             <div className="text-center space-y-5 py-6">
-                                <div className="text-4xl">✅</div>
-                                <p className="text-[#2c1810] font-bold text-lg" style={{ fontFamily: 'serif' }}>注册成功，请返回登录</p>
-                                <p className="text-sm text-[#8b7355] leading-relaxed">账号已创建，前往登录页开始您的书香之旅</p>
+                                <div className="flex justify-center">
+                                    <Icon name="check-circle-2" size={56} className="text-emerald-600" />
+                                </div>
+                                <p className="text-[#2c1810] font-bold text-lg" style={{ fontFamily: 'serif' }}>入阁成功</p>
+                                <p className="text-sm text-[#8b7355] leading-relaxed">账号已创建成功，请使用您的邮箱和密码登录</p>
+                                {redirectCountdown > 0 && (
+                                    <p className="text-xs text-[#b8a99a]">{redirectCountdown}s 后自动刷新</p>
+                                )}
                                 <button onClick={resetToInit}
                                         className="mt-4 px-8 py-3.5 rounded-xl font-bold text-white shadow-lg transition-all active:scale-95 bg-gradient-to-r from-[#b22222] to-[#8b1a1a] shadow-[#b22222]/20">
                                     前往登录
@@ -662,9 +731,17 @@
                                         <EyeIcon visible={showConfirmPw} onClick={() => setShowConfirmPw(!showConfirmPw)} />
                                     </div>
                                 </div>
+                                {adminMode && (
+                                    <div className="space-y-1">
+                                        <label className="text-[11px] font-bold text-[#660874] uppercase ml-2 tracking-widest">管理员密钥</label>
+                                        <input type="text" value={adminKey}
+                                               onChange={e => setAdminKey(e.target.value)}
+                                               className={cls.input} placeholder="请输入管理员密钥" />
+                                    </div>
+                                )}
                                 <button onClick={handleCompleteRegister} disabled={loading || redirecting}
                                         className={cls.btn + ' bg-gradient-to-r from-[#b22222] to-[#8b1a1a] shadow-[#b22222]/20 mt-2'}>
-                                    {loading ? <><Icon name="loader-2" size={18} className="animate-spin" /> 注册中…</> : '完成注册 · 入阁'}
+                                    {loading ? <><Icon name="loader-2" size={18} className="animate-spin" /> 已完成注册请返回登陆！</> : '完成注册 · 入阁'}
                                 </button>
                                 <p className="text-center text-sm text-[#8b7355] pt-1 cursor-pointer hover:text-[#2c1810] transition-colors"
                                    onClick={() => { setStep('code'); setMsg(null); setConfirmPw(''); }}>
@@ -676,7 +753,7 @@
                                 <div className="space-y-1">
                                     <label className="text-[11px] font-bold text-[#8b7355] uppercase ml-2 tracking-widest">邮箱</label>
                                     <input value={email} onChange={e => setEmail(e.target.value)}
-                                           className={cls.input} placeholder={adminMode ? "管理员邮箱" : "请输入您的qq.com"} type="text" inputMode="email" autoComplete="email" />
+                                           className={cls.input} placeholder={adminMode ? "管理员邮箱" : "请输入您的QQ账号+@qq.com"} type="text" inputMode="email" autoComplete="email" />
                                 </div>
                                 <div className="space-y-1">
                                     <label className="text-[11px] font-bold text-[#8b7355] uppercase ml-2 tracking-widest">密码</label>
